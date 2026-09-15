@@ -11,7 +11,10 @@ import jwt
 from db import get_web_db
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+# Keep refresh sessions long-lived enough for normal use while retaining the
+# short-lived access token. Existing sessions keep their stored expiry; the
+# next login or refresh rotation receives the new lifetime.
+REFRESH_TOKEN_EXPIRE_DAYS = 90
 ALGORITHM = "HS256"
 
 

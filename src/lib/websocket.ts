@@ -76,10 +76,18 @@ export function connectWS() {
 
 	ws.onmessage = (e) => handleMessage(e.data);
 
-	ws.onclose = () => {
+	ws.onclose = (event) => {
 		wsConnected.set(false);
 		cleanup();
-		scheduleReconnect();
+		// The access JWT can expire while the browser is open. The API already
+		// refreshes on 401; do the same before retrying an unauthorized socket.
+		if (event.code === 4001) {
+			void auth.refresh().then((refreshed) => {
+				if (refreshed) connectWS();
+			});
+		} else {
+			scheduleReconnect();
+		}
 	};
 
 	ws.onerror = () => {

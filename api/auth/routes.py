@@ -155,7 +155,7 @@ def login(req: LoginRequest, request: Request, response: Response):
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=7 * 24 * 60 * 60,
+            max_age=90 * 24 * 60 * 60,
             path="/",
         )
 
@@ -203,7 +203,7 @@ def refresh(request: Request, response: Response):
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=7 * 24 * 60 * 60,
+        max_age=90 * 24 * 60 * 60,
         path="/",
     )
 
