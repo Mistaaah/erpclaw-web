@@ -54,6 +54,9 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
     """WebSocket endpoint for real-time notifications. Requires JWT token."""
     # Verify JWT token before accepting connection
     if not token or not verify_access_token(token):
+        # Complete the handshake before closing so browsers receive the
+        # application close code instead of surfacing a generic HTTP 403.
+        await ws.accept()
         await ws.close(code=4001, reason="Unauthorized")
         return
 
