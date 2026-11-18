@@ -33,6 +33,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
+        # The SvelteKit shell and its static assets are public. Authentication
+        # is enforced at the API boundary; the WebSocket handler validates its
+        # own token before accepting the connection.
+        is_api_request = path == "/api" or path.startswith("/api/")
+        if not is_api_request and path != "/ws":
+            return await call_next(request)
+
         # Skip auth for public routes
         if path in PUBLIC_ROUTES or any(path.startswith(p) for p in PUBLIC_PREFIXES):
             response = await call_next(request)
