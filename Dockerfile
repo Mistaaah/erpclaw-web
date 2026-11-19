@@ -25,4 +25,5 @@ ENV ERPCLAW_DB=/data/data.sqlite
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Railway HTTP logs retain request status/path without exposing query credentials.
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080} --no-access-log"]

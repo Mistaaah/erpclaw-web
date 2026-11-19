@@ -5,10 +5,11 @@ Events:
   data_changed: entity data was modified (create, update, delete, submit)
 """
 
+import asyncio
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from auth.jwt_utils import verify_access_token
 
@@ -23,6 +24,9 @@ class ConnectionManager:
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
+        self.register(ws)
+
+    def register(self, ws: WebSocket):
         self.active.append(ws)
 
     def disconnect(self, ws: WebSocket):
@@ -50,17 +54,35 @@ manager = ConnectionManager()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
-    """WebSocket endpoint for real-time notifications. Requires JWT token."""
-    # Verify JWT token before accepting connection
-    if not token or not verify_access_token(token):
-        # Complete the handshake before closing so browsers receive the
-        # application close code instead of surfacing a generic HTTP 403.
-        await ws.accept()
+async def websocket_endpoint(ws: WebSocket):
+    """Authenticate with the first WebSocket message; never put JWTs in URLs."""
+    await ws.accept()
+
+    try:
+        auth_message = await asyncio.wait_for(ws.receive_text(), timeout=10)
+    except WebSocketDisconnect:
+        return
+    except asyncio.TimeoutError:
         await ws.close(code=4001, reason="Unauthorized")
         return
 
-    await manager.connect(ws)
+    try:
+        auth_data = json.loads(auth_message)
+    except (TypeError, ValueError):
+        auth_data = None
+
+    token = (
+        auth_data.get("token")
+        if isinstance(auth_data, dict) and auth_data.get("type") == "auth"
+        else None
+    )
+    if not isinstance(token, str) or not verify_access_token(token):
+        await ws.close(code=4001, reason="Unauthorized")
+        return
+
+    manager.register(ws)
+    await ws.send_text(json.dumps({"event": "authenticated"}))
+
     try:
         while True:
             # Keep connection alive; client can send pings

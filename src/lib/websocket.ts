@@ -27,14 +27,26 @@ let pingTimer: ReturnType<typeof setInterval> | null = null;
 
 function getWsUrl(): string {
 	const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-	const state = get(auth);
-	const token = state.accessToken ?? '';
-	return `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+	return `${proto}//${window.location.host}/ws`;
+}
+
+function startPingTimer() {
+	if (pingTimer) clearInterval(pingTimer);
+	pingTimer = setInterval(() => {
+		if (ws?.readyState === WebSocket.OPEN) {
+			ws.send('ping');
+		}
+	}, 30_000);
 }
 
 function handleMessage(raw: string) {
 	try {
 		const msg: WSEvent = JSON.parse(raw);
+		if (msg.event === 'authenticated') {
+			wsConnected.set(true);
+			startPingTimer();
+			return;
+		}
 		if (msg.event === 'pong') return;
 
 		const handlers = listeners.get(msg.event);
@@ -65,13 +77,13 @@ export function connectWS() {
 	}
 
 	ws.onopen = () => {
-		wsConnected.set(true);
-		// Ping every 30s to keep connection alive
-		pingTimer = setInterval(() => {
-			if (ws?.readyState === WebSocket.OPEN) {
-				ws.send('ping');
-			}
-		}, 30_000);
+		const token = get(auth).accessToken;
+		if (!token) {
+			ws?.close(4001, 'Unauthorized');
+			return;
+		}
+		// Send credentials in the first WebSocket frame, not the URL.
+		ws.send(JSON.stringify({ type: 'auth', token }));
 	};
 
 	ws.onmessage = (e) => handleMessage(e.data);
