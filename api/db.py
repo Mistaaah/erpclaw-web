@@ -16,6 +16,31 @@ ERP_DB_PATH = os.environ.get(
     os.path.expanduser("~/.openclaw/erpclaw/data.sqlite"),
 )
 
+# ERP business data lives in the Railway Postgres database. The web app's own
+# auth/session data remains in its local SQLite database.
+ERP_DATABASE_URL = os.environ.get("ERPCLAW_DB_URL")
+
+
+def get_erp_pg_db():
+    """Open a read-only transaction against the authoritative ERP Postgres DB."""
+    if not ERP_DATABASE_URL:
+        raise RuntimeError("ERPCLAW_DB_URL is not configured")
+    try:
+        import psycopg2
+        import psycopg2.extras
+    except ImportError as exc:
+        raise RuntimeError("Postgres support is unavailable") from exc
+    try:
+        conn = psycopg2.connect(
+            ERP_DATABASE_URL,
+            connect_timeout=5,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+    except psycopg2.OperationalError as exc:
+        raise RuntimeError("ERP database unavailable") from exc
+    conn.set_session(readonly=True, autocommit=False)
+    return conn
+
 
 def get_web_db() -> sqlite3.Connection:
     """Get connection to the web app's own database (auth, sessions)."""

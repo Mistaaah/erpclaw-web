@@ -14,7 +14,7 @@ describe('stores', () => {
 	});
 
 	it('has 3 registered verticals', () => {
-		expect(Object.keys(verticals)).toEqual(['erpclaw', 'dental', 'property']);
+		expect(Object.keys(get(verticals))).toEqual(['erpclaw', 'dental', 'property']);
 	});
 
 	it('switching vertical updates derived layout', () => {

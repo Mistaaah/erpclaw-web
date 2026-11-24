@@ -13,7 +13,8 @@
 		totalCount = 0,
 		hasMore = false,
 		loadingMore = false,
-		onLoadMore
+		onLoadMore,
+		onSearch
 	}: {
 		columns: ColumnDef[];
 		data: Record<string, unknown>[];
@@ -26,17 +27,25 @@
 		hasMore?: boolean;
 		loadingMore?: boolean;
 		onLoadMore?: () => void;
+		onSearch?: (query: string) => void;
 	} = $props();
 
 	let activeFilter = $state('All');
 	let searchQuery = $state('');
 	let focusedRowIndex = $state(-1);
 
+	$effect(() => {
+		if (!onSearch) return;
+		const query = searchQuery;
+		const timer = setTimeout(() => onSearch(query.trim()), 300);
+		return () => clearTimeout(timer);
+	});
+
 	let filtered = $derived.by(() => {
 		let rows = activeFilter === 'All'
 			? data
 			: data.filter((r) => String(r[filterField] ?? '').toLowerCase() === activeFilter.toLowerCase());
-		if (searchQuery.trim()) {
+		if (searchQuery.trim() && !onSearch) {
 			const q = searchQuery.trim().toLowerCase();
 			rows = rows.filter((r) =>
 				columns.some((col) => String(r[col.field] ?? '').toLowerCase().includes(q))

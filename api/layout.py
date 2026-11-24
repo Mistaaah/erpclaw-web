@@ -103,7 +103,11 @@ def get_layout(vertical: str, request: Request):
     user = getattr(request.state, "user", None)
     roles = user.get("roles", []) if user else ["System Manager"]
 
-    return _apply_role_filter(layout, roles)
+    result = _apply_role_filter(layout, roles)
+    # Layout files contain demo dashboard values and sample records. Live ERP
+    # data is served by /api/erp; never send those fixtures to the browser.
+    result = {key: value for key, value in result.items() if key not in {"mockData", "kpis", "workflows", "attention", "activity"}}
+    return result
 
 
 @router.post("/reload")

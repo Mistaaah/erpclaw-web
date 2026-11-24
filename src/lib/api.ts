@@ -56,12 +56,11 @@ export async function executeAction(
 
 /**
  * Field mappings: erpclaw response field → frontend column field.
- * Maps real DB column names to what the DataTable/mock data expects.
+ * Maps ERP schema fields to the displayed table and detail fields.
  */
 const FIELD_MAPS: Record<string, Record<string, string>> = {
 	customer: {
-		customer_type: 'type',
-		credit_limit: 'balance'
+		customer_type: 'type'
 	},
 	supplier: {
 		supplier_type: 'type'
@@ -70,9 +69,9 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 		naming_series: 'id',
 		customer_name: 'customer',
 		customer_id: 'customer',
-		transaction_date: 'date',
+		quotation_date: 'date',
 		grand_total: 'total',
-		valid_till: 'validUntil'
+		valid_until: 'validUntil'
 	},
 	sales_order: {
 		naming_series: 'id',
@@ -86,6 +85,7 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 		naming_series: 'id',
 		customer_name: 'customer',
 		customer_id: 'customer',
+		sales_order_id: 'salesOrder',
 		posting_date: 'date',
 		grand_total: 'total'
 	},
@@ -108,6 +108,7 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 		naming_series: 'id',
 		supplier_name: 'supplier',
 		supplier_id: 'supplier',
+		purchase_order_id: 'purchaseOrder',
 		posting_date: 'date',
 		grand_total: 'total'
 	},
@@ -131,11 +132,14 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 		full_name: 'name',
 		date_of_joining: 'joinDate',
 		employment_type: 'type',
+		department_id: 'department',
+		designation_id: 'designation',
 		department_name: 'department',
 		designation_name: 'designation'
 	},
 	account: {
 		account_number: 'number',
+		account_type: 'type',
 		root_type: 'rootType',
 		is_group: 'isGroup'
 	},
@@ -151,7 +155,9 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 	stock_entry: {
 		naming_series: 'id',
 		stock_entry_type: 'type',
-		posting_date: 'date'
+		posting_date: 'date',
+		from_warehouse_id: 'from',
+		to_warehouse_id: 'to'
 	},
 	payment_entry: {
 		naming_series: 'id',
@@ -164,7 +170,7 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 	expense_claim: {
 		naming_series: 'id',
 		expense_date: 'date',
-		total_amount: 'amount',
+		total_amount: 'total',
 		employee_name: 'employee',
 		employee_id: 'employee'
 	},
@@ -174,7 +180,18 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 		customer_id: 'customer',
 		posting_date: 'date',
 		grand_total: 'amount',
+		return_against: 'invoice',
 		return_against_name: 'invoice'
+	},
+	company: {
+		default_currency: 'currency'
+	},
+	fiscal_year: {
+		start_date: 'start',
+		end_date: 'end'
+	},
+	tax_template: {
+		tax_type: 'type'
 	}
 };
 
@@ -185,7 +202,14 @@ const FIELD_MAPS: Record<string, Record<string, string>> = {
 const NAME_PRIORITY: Record<string, string[]> = {
 	customer: ['customer_name'],
 	supplier: ['supplier_name'],
+	salesOrder: ['sales_order_name'],
+	purchaseOrder: ['purchase_order_name'],
+	invoice: ['return_against_name'],
 	group: ['item_group_name'],
+	from: ['from_warehouse_name'],
+	to: ['to_warehouse_name'],
+	department: ['department_name'],
+	designation: ['designation_name'],
 	employee: ['employee_name'],
 	party: ['party_name']
 };
@@ -230,6 +254,10 @@ function mapFields(entityKey: string, rows: Record<string, unknown>[]): Record<s
 			}
 		}
 
+		if (entityKey === 'fiscal_year' && row.is_closed != null) {
+			mapped.status = row.is_closed ? 'closed' : 'open';
+		}
+
 		return mapped;
 	});
 }
@@ -240,40 +268,69 @@ export interface FetchResult {
 	hasMore: boolean;
 }
 
+export interface EntityRecordResult {
+	row: Record<string, unknown> | null;
+	notFound: boolean;
+}
+
+/** Fetch one ERP record by its database UUID, preserving 404 separately from API failures. */
+export async function fetchEntityRecord(entityKey: string, id: string): Promise<EntityRecordResult | null> {
+	try {
+		const res = await auth.apiFetch(`/api/erp/${encodeURIComponent(entityKey)}/${encodeURIComponent(id)}`);
+		if (res.status === 404) return { row: null, notFound: true };
+		if (!res.ok) return null;
+		const payload = await res.json();
+		if (payload.error || !payload.data || typeof payload.data !== 'object') return null;
+		const [row] = mapFields(entityKey, [payload.data]);
+		return { row, notFound: false };
+	} catch {
+		return null;
+	}
+}
+
+export interface DashboardOverview {
+	kpis: import('./types').KPIItem[];
+	workflows: import('./types').WorkflowDef[];
+	attention: import('./types').AttentionItem[];
+	activity: import('./types').ActivityItem[];
+}
+
+/** Load dashboard business metrics from the configured ERP database. */
+export async function fetchDashboardOverview(): Promise<DashboardOverview | null> {
+	try {
+		const res = await auth.apiFetch('/api/erp/overview');
+		if (!res.ok) return null;
+		const data = await res.json();
+		return {
+			kpis: Array.isArray(data.kpis) ? data.kpis : [],
+			workflows: Array.isArray(data.workflows) ? data.workflows : [],
+			attention: Array.isArray(data.attention) ? data.attention : [],
+			activity: Array.isArray(data.activity) ? data.activity : []
+		};
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Fetch list data for an entity.
- * Tries the API first, returns null if unavailable (caller falls back to mock).
+ * Reads records from the ERP database API. Returns null if unavailable.
  */
-/**
- * Action name overrides for entities with irregular plurals or non-standard names.
- */
-const ACTION_OVERRIDES: Record<string, string> = {
-	stock_entry: 'list-stock-entries',
-	journal_entry: 'list-journal-entries',
-	payment_entry: 'list-payments',
-	delivery_note: 'list-delivery-notes',
-	credit_note: 'list-credit-notes'
-};
-
 export async function fetchEntityData(
-	skill: string,
 	entityKey: string,
-	options?: { filters?: Record<string, string>; offset?: number; limit?: number }
+	options?: { filters?: Record<string, string>; offset?: number; limit?: number; search?: string }
 ): Promise<FetchResult | null> {
-	const action = ACTION_OVERRIDES[entityKey] ?? `list-${entityKey.replace(/_/g, '-')}s`;
-	const params: Record<string, unknown> = {};
+	const params = new URLSearchParams();
+	if (options?.offset) params.set('offset', String(options.offset));
+	if (options?.limit) params.set('limit', String(options.limit));
+	if (options?.search) params.set('search', options.search);
 	if (options?.filters) {
-		Object.assign(params, options.filters);
+		for (const [key, value] of Object.entries(options.filters)) params.set(key, value);
 	}
-	if (options?.offset) params.offset = options.offset;
-	if (options?.limit) params.limit = options.limit;
 
 	try {
-		const res = await auth.apiFetch(`/api/action/${skill}/${action}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ params })
-		});
+		const query = params.size ? `?${params.toString()}` : '';
+		const res = await auth.apiFetch(`/api/erp/${encodeURIComponent(entityKey)}${query}`);
 
 		if (!res.ok) return null;
 
@@ -303,7 +360,7 @@ export async function fetchEntityData(
 			hasMore: Boolean(data.has_more ?? false)
 		};
 	} catch {
-		return null; // API unavailable, fall back to mock
+		return null;
 	}
 }
 

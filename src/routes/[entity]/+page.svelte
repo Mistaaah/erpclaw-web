@@ -5,11 +5,10 @@
 	import { page } from '$app/stores';
 	import { fly } from 'svelte/transition';
 	import { fetchEntityData, executeAction, skillForAction } from '$lib/api';
-	import type { FetchResult } from '$lib/api';
 	import { addToast } from '$lib/toast';
 	import { isLoading as authLoading, isAuthenticated } from '$lib/auth';
 	import { onWSEvent } from '$lib/websocket';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 
 	// URL aliases: common short names → actual entity keys
@@ -25,6 +24,7 @@
 
 	let rawEntityKey = $derived($page.params.entity ?? '');
 	let entityKey = $derived(ENTITY_ALIASES[rawEntityKey] ?? rawEntityKey);
+	let statusFilter = $derived($page.url.searchParams.get('status') ?? '');
 
 	// Redirect to canonical URL if alias was used
 	$effect(() => {
@@ -34,26 +34,30 @@
 	});
 
 	let entityDef = $derived(entityKey ? $layout.entities[entityKey] : undefined);
-	let mockData = $derived(entityKey ? ($layout.mockData[entityKey] ?? []) : []);
-
-	let liveData = $state<Record<string, unknown>[] | null>(null);
+	let liveData = $state<Record<string, unknown>[]>([]);
 	let loadingData = $state(false);
+	let dataUnavailable = $state(false);
 	let loadingMore = $state(false);
 	let totalCount = $state(0);
 	let hasMore = $state(false);
+	let searchQuery = $state('');
+	let requestId = 0;
 	let selectedRow = $state<Record<string, unknown> | null>(null);
 	let actionLoading = $state<string | null>(null);
 
-	// Use live data if available, otherwise mock
-	let entityData = $derived(liveData ?? mockData);
+	let entityData = $derived(liveData);
 
 	// Fetch live data when entity changes AND auth is fully ready
 	// (Must wait for auth.refresh() in root layout to complete — both loading=false AND user set)
 	$effect(() => {
-		if (entityKey && !$authLoading && $isAuthenticated) {
+		const key = entityKey;
+		const status = statusFilter;
+		if (key && !$authLoading && $isAuthenticated) {
 			selectedRow = null;
-			liveData = null; // Clear stale data so DataTable unmounts during load
-			loadLiveData();
+			liveData = [];
+			dataUnavailable = false;
+			searchQuery = '';
+			untrack(() => loadLiveData('', key, status));
 		}
 	});
 
@@ -66,28 +70,41 @@
 	});
 	onDestroy(unsubWS);
 
-	async function loadLiveData() {
-		if (!entityKey) return;
+	async function loadLiveData(search = searchQuery, entity = entityKey, status = statusFilter) {
+		if (!entity) return;
+		const request = ++requestId;
 		loadingData = true;
-		// Fetch up to 200 initially so client-side filters work on the full dataset.
-		// Load More handles any overflow beyond 200.
-		const result = await fetchEntityData('erpclaw', entityKey, { limit: 200 });
+		loadingMore = false;
+		const filters = status ? { status } : undefined;
+		const result = await fetchEntityData(entity, { limit: 200, search, filters });
+		if (request !== requestId) return;
 		if (result) {
 			liveData = result.rows;
+			dataUnavailable = false;
 			totalCount = result.totalCount;
 			hasMore = result.hasMore;
 		} else {
-			liveData = null; // Fall back to mock
+			liveData = [];
+			dataUnavailable = true;
 			totalCount = 0;
 			hasMore = false;
 		}
 		loadingData = false;
 	}
 
+	function handleSearch(query: string) {
+		if (query === searchQuery) return;
+		searchQuery = query;
+		loadLiveData(query);
+	}
+
 	async function handleLoadMore() {
-		if (!entityKey || !liveData) return;
+		if (!entityKey || loadingData || loadingMore) return;
 		loadingMore = true;
-		const result = await fetchEntityData('erpclaw', entityKey, { offset: liveData.length });
+		const request = requestId;
+		const filters = statusFilter ? { status: statusFilter } : undefined;
+		const result = await fetchEntityData(entityKey, { offset: liveData.length, limit: 200, search: searchQuery, filters });
+		if (request !== requestId) return;
 		if (result) {
 			liveData = [...liveData, ...result.rows];
 			totalCount = result.totalCount;
@@ -143,7 +160,7 @@
 								Loading...
 							{:else}
 								{totalCount || entityData.length} {(totalCount || entityData.length) === 1 ? 'record' : 'records'}
-								{#if liveData}<span class="text-emerald">(live)</span>{/if}
+								{#if !dataUnavailable}<span class="text-emerald">(live)</span>{/if}
 							{/if}
 						</p>
 					</div>
@@ -156,8 +173,8 @@
 					</a>
 				</div>
 
-				{#if entityData.length > 0}
-					{#key entityKey}
+				{#if !dataUnavailable && (entityData.length > 0 || searchQuery || statusFilter)}
+					{#key entityKey + ':' + statusFilter}
 					<DataTable
 						columns={entityDef.columns}
 						data={entityData}
@@ -170,8 +187,13 @@
 						{hasMore}
 						{loadingMore}
 						onLoadMore={handleLoadMore}
+						onSearch={handleSearch}
 					/>
 					{/key}
+				{:else if !loadingData && dataUnavailable}
+					<div class="rounded-xl border border-border p-6 text-center text-sm text-muted" role="status">
+						Could not load {entityDef.labelPlural.toLowerCase()} from the ERP database. Refresh to try again.
+					</div>
 				{:else if !loadingData}
 					<div class="flex flex-col items-center justify-center rounded-xl border border-border py-16 text-center">
 						<p class="text-4xl">&#x1F4ED;</p>

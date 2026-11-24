@@ -16,11 +16,13 @@
 			<span class="text-lg" aria-hidden="true">{workflow.icon}</span>
 			<span class="text-sm font-medium">{workflow.label}</span>
 		</div>
+		{#if workflow.primaryAction}
 		<button
 			class="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:border-accent hover:text-accent"
 		>
 			{workflow.primaryAction}
 		</button>
+		{/if}
 	</div>
 	<!-- Horizontal scroll on mobile -->
 	<div class="flex items-center gap-2 overflow-x-auto pb-1">

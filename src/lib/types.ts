@@ -16,8 +16,8 @@ export interface WorkflowStep {
 export interface WorkflowDef {
 	key: string;
 	label: string;
-	icon: string;
-	primaryAction: string;
+	icon?: string;
+	primaryAction?: string;
 	steps: WorkflowStep[];
 }
 

@@ -4,11 +4,16 @@ import { erpclaw } from './mock/erpclaw';
 import { dental } from './mock/dental';
 import { property } from './mock/property';
 
-// Mock data — used as fallback when API is unavailable
+// Keep local fixtures for navigation and form metadata only. Business values
+// must always come from the ERP database API.
+function viewMetadata(layout: VerticalLayout): VerticalLayout {
+	return { ...layout, kpis: [], workflows: [], mockData: {}, attention: [], activity: [] };
+}
+
 const mockVerticals: Record<string, VerticalLayout> = {
-	erpclaw,
-	dental,
-	property
+	erpclaw: viewMetadata(erpclaw),
+	dental: viewMetadata(dental),
+	property: viewMetadata(property)
 };
 
 // Live verticals store — starts with mock, updated by API
@@ -41,7 +46,7 @@ export async function loadVerticals(): Promise<void> {
 
 		const loaded: Record<string, VerticalLayout> = {};
 		for (const l of layouts) {
-			if (l && l.name) loaded[l.name] = l;
+			if (l && l.name) loaded[l.name] = viewMetadata(l);
 		}
 
 		if (Object.keys(loaded).length > 0) {

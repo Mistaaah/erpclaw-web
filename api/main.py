@@ -1,7 +1,9 @@
 """ERPClaw Web API — FastAPI application."""
 
+import logging
 import os
 import sys
+from contextlib import closing
 from pathlib import Path
 
 # Ensure api/ directory is on the Python path
@@ -16,8 +18,12 @@ from auth.routes import router as auth_router
 from skills.routes import router as skills_router
 from layout import router as layout_router
 from chat.routes import router as chat_router
+from db import get_erp_pg_db
+from erp_routes import router as erp_router
 from ws import router as ws_router
 from init_db import init_web_db
+
+logger = logging.getLogger("uvicorn.error")
 
 # Initialize database on startup
 init_web_db()
@@ -52,12 +58,21 @@ app.include_router(auth_router)
 app.include_router(layout_router)
 app.include_router(skills_router)
 app.include_router(chat_router)
+app.include_router(erp_router)
 app.include_router(ws_router)
 
 
 @app.get("/api/health")
 def health():
     """Health check endpoint."""
+    if _is_production or os.environ.get("ERPCLAW_DB_URL"):
+        try:
+            with closing(get_erp_pg_db()) as conn, conn.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM company LIMIT 1")
+        except Exception as exc:
+            logger.warning("ERP readiness check failed (%s)", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="ERP database unavailable") from exc
+        return {"status": "ok", "version": "1.0.0", "erp_database": "ok"}
     return {"status": "ok", "version": "1.0.0"}
 
 
