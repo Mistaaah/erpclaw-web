@@ -4,7 +4,7 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import ChatPanel from '$lib/components/ChatPanel.svelte';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
-	import { layout, loadVerticals } from '$lib/stores';
+	import { layout, loadLayout } from '$lib/stores';
 	import { auth, user, isAuthenticated, isLoading } from '$lib/auth';
 	import { connectWS, disconnectWS } from '$lib/websocket';
 	import { page } from '$app/stores';
@@ -61,8 +61,8 @@
 				return;
 			}
 
-			// Load verticals from API
-			await loadVerticals();
+			// Load workspace navigation from the API
+			await loadLayout();
 
 			// Connect WebSocket for real-time updates
 			connectWS();

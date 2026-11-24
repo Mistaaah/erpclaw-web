@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter(prefix="/api/layout", tags=["layout"])
 
@@ -22,14 +22,11 @@ def _load_layouts():
     """Load all layout JSON files from the layouts/ directory."""
     if _layout_cache:
         return
-    if not LAYOUTS_DIR.exists():
+    try:
+        data = json.loads((LAYOUTS_DIR / "erpclaw.json").read_text())
+    except (OSError, json.JSONDecodeError):
         return
-    for f in LAYOUTS_DIR.glob("*.json"):
-        try:
-            data = json.loads(f.read_text())
-            _layout_cache[data["name"]] = data
-        except (json.JSONDecodeError, KeyError):
-            pass
+    _layout_cache["erpclaw"] = data
 
 
 def _apply_role_filter(layout: dict, roles: list[str]) -> dict:
@@ -95,7 +92,7 @@ def get_layout(vertical: str, request: Request):
     _load_layouts()
 
     if vertical not in _layout_cache:
-        return {"error": f"Vertical '{vertical}' not found"}
+        raise HTTPException(status_code=404, detail="Workspace not found")
 
     layout = _layout_cache[vertical]
 

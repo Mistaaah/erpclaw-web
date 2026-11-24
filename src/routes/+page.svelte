@@ -5,7 +5,6 @@
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
 	import { onMount } from 'svelte';
 	import { fetchDashboardOverview, type DashboardOverview } from '$lib/api';
-	import { currentVerticalKey } from '$lib/stores';
 
 	let overview = $state<DashboardOverview | null>(null);
 	let loading = $state(true);
@@ -21,11 +20,7 @@
 		<p class="text-sm text-muted">Live business overview</p>
 	</div>
 
-	{#if $currentVerticalKey !== 'erpclaw'}
-		<div class="rounded-xl border border-border p-6 text-sm text-muted" role="status">
-			Live dashboard metrics are not available for this workspace yet.
-		</div>
-	{:else if loading}
+	{#if loading}
 		<p class="rounded-xl border border-border p-6 text-sm text-muted">Loading business data…</p>
 	{:else if !overview}
 		<div class="rounded-xl border border-border p-6 text-sm text-muted" role="status">
