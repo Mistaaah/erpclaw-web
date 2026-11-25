@@ -1,7 +1,7 @@
 """Initialize the erpclaw-web database schema (auth, sessions, roles)."""
 
 import uuid
-from db import get_web_db
+from db import WEB_DATABASE_URL, get_web_db
 
 
 SCHEMA_SQL = """
@@ -153,27 +153,25 @@ def init_web_db():
     try:
         conn.executescript(SCHEMA_SQL)
 
-        # Migration: add revoked_at and grace_until columns for existing DBs
-        try:
-            conn.execute("ALTER TABLE web_session ADD COLUMN revoked_at TEXT")
-        except:
-            pass
-        try:
-            conn.execute("ALTER TABLE web_session ADD COLUMN grace_until TEXT")
-        except:
-            pass
+        # Existing installations may predate session rotation.
+        if WEB_DATABASE_URL:
+            conn.execute("ALTER TABLE web_session ADD COLUMN IF NOT EXISTS revoked_at TEXT")
+            conn.execute("ALTER TABLE web_session ADD COLUMN IF NOT EXISTS grace_until TEXT")
+        else:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(web_session)")}
+            for column in ("revoked_at", "grace_until"):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE web_session ADD COLUMN {column} TEXT")
 
         # Seed roles
         for name, desc, is_system in SEED_ROLES:
-            existing = conn.execute(
-                "SELECT id FROM web_role WHERE name = ?", (name,)
-            ).fetchone()
-            if not existing:
-                role_id = str(uuid.uuid4())
-                conn.execute(
-                    "INSERT INTO web_role (id, name, description, is_system) VALUES (?, ?, ?, ?)",
-                    (role_id, name, desc, int(is_system)),
-                )
+            role_id = str(uuid.uuid4())
+            inserted = conn.execute(
+                """INSERT INTO web_role (id, name, description, is_system)
+                   VALUES (?, ?, ?, ?) ON CONFLICT(name) DO NOTHING""",
+                (role_id, name, desc, int(is_system)),
+            )
+            if inserted.rowcount:
                 # Seed permissions for this role
                 if name in ROLE_PERMISSIONS:
                     for skill, pattern in ROLE_PERMISSIONS[name]:
@@ -183,7 +181,7 @@ def init_web_db():
                         )
 
         conn.commit()
-        print(f"Web database initialized at {conn.execute('PRAGMA database_list').fetchone()[2]}")
+        print("Web account store initialized (" + ("PostgreSQL" if WEB_DATABASE_URL else "SQLite") + ")")
     finally:
         conn.close()
 

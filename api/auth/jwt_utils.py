@@ -18,6 +18,10 @@ REFRESH_TOKEN_EXPIRE_DAYS = 90
 ALGORITHM = "HS256"
 
 
+def read_timestamp(value: datetime | str) -> datetime:
+    return value if isinstance(value, datetime) else datetime.fromisoformat(value)
+
+
 def _get_jwt_secret() -> str:
     """Get or create the JWT secret from web_config table."""
     conn = get_web_db()
@@ -31,10 +35,11 @@ def _get_jwt_secret() -> str:
         # Generate and store new secret
         secret = secrets.token_hex(32)
         conn.execute(
-            "INSERT INTO web_config (key, value) VALUES ('jwt_secret', ?)", (secret,)
+            """INSERT INTO web_config (key, value) VALUES ('jwt_secret', ?)
+               ON CONFLICT(key) DO NOTHING""", (secret,)
         )
         conn.commit()
-        return secret
+        return conn.execute("SELECT value FROM web_config WHERE key = 'jwt_secret'").fetchone()["value"]
     finally:
         conn.close()
 
@@ -117,7 +122,7 @@ def verify_refresh_token(token: str) -> dict | None:
         if row["revoked_at"]:
             grace = row["grace_until"]
             if grace:
-                grace_dt = datetime.fromisoformat(grace)
+                grace_dt = read_timestamp(grace)
                 if grace_dt.tzinfo is None:
                     grace_dt = grace_dt.replace(tzinfo=timezone.utc)
                 if datetime.now(timezone.utc) > grace_dt:
@@ -133,7 +138,7 @@ def verify_refresh_token(token: str) -> dict | None:
                 return None
 
         # Check expiry
-        expires = datetime.fromisoformat(row["expires_at"])
+        expires = read_timestamp(row["expires_at"])
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) > expires:

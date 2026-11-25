@@ -3,9 +3,12 @@
 import asyncio
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
+
+import httpx
 
 # Where skills are installed
 SKILLS_DIR = os.path.expanduser("~/clawd/skills")
@@ -18,6 +21,44 @@ WEB_DB_PATH = os.path.expanduser("~/.openclaw/erpclaw-web/web.sqlite")
 ACTION_TIMEOUT = 30  # seconds
 SLOW_ACTIONS = {"seed-demo-data", "initialize-database", "import-customers", "import-items"}
 SLOW_TIMEOUT = 120
+
+
+_ARGUMENT = re.compile(r"[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*")
+_RESERVED = ("action", "db-path", "user-confirmed")
+
+
+async def _execute_railway_action(url: str, token: str, action: str, params: dict) -> dict:
+    args = {}
+    for key, value in params.items():
+        if key.startswith("_"):
+            continue
+        option = key.replace("_", "-")
+        if not _ARGUMENT.fullmatch(key) or any(name.startswith(option) for name in _RESERVED):
+            return {"error": "Invalid action parameter"}
+        if isinstance(value, str) and value.startswith("--"):
+            return {"error": "Invalid action parameter value"}
+        args[option] = value
+
+    timeout = SLOW_TIMEOUT if action in SLOW_ACTIONS else ACTION_TIMEOUT
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(
+                f"{url.rstrip('/')}/internal/action",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"action": action, "args": args},
+            )
+            response.raise_for_status()
+            result = response.json()
+    except (httpx.HTTPError, ValueError):
+        return {"error": "Railway action service is unavailable"}
+
+    if not isinstance(result, dict):
+        return {"error": "Invalid response from Railway action service"}
+    if result.get("status") == "confirmation_required":
+        return {"error": result.get("message") or "Action requires confirmation"}
+    if result.get("status") == "error":
+        return {"error": result.get("error") or "ERP action failed"}
+    return result
 
 
 def _find_script(skill: str) -> str | None:
@@ -91,6 +132,15 @@ async def execute_action(
     skill: str, action: str, params: dict | None = None
 ) -> dict:
     """Execute a skill action and return the parsed result."""
+    url = os.environ.get("ERPCLAW_MCP_URL")
+    token = os.environ.get("ERPCLAW_INTERNAL_TOKEN")
+    if url:
+        if skill != "erpclaw" or not _ARGUMENT.fullmatch(action):
+            return {"error": "Action is unavailable on the Railway backend"}
+        if not token:
+            return {"error": "Railway action service is unavailable"}
+        return await _execute_railway_action(url, token, action, params or {})
+
     script = _find_script(skill)
     if not script:
         return {"error": f"Skill '{skill}' not found"}

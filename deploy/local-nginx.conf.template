@@ -1,0 +1,32 @@
+map $http_upgrade $erpclaw_connection {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name localhost;
+    root /usr/share/nginx/html;
+
+    access_log off;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+
+    location / {
+        try_files $uri /index.html;
+    }
+
+    location ~ ^/(api(?:/|$)|ws$) {
+        proxy_pass https://${ERPCLAW_API_HOST};
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_verify_depth 3;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_set_header Host ${ERPCLAW_API_HOST};
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $erpclaw_connection;
+        proxy_read_timeout 3600s;
+        proxy_buffering off;
+    }
+}

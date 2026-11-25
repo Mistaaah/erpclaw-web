@@ -3,12 +3,13 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr
 
-from db import get_web_db
+from db import ALLOW_WEB_SETUP, get_web_db
 from auth.passwords import hash_password, verify_password, validate_password
 from auth.jwt_utils import (
+    read_timestamp,
     create_access_token,
     create_refresh_token,
     verify_refresh_token,
@@ -42,6 +43,8 @@ def check_setup():
     conn = get_web_db()
     try:
         count = conn.execute("SELECT COUNT(*) as c FROM web_user").fetchone()["c"]
+        if count == 0 and not ALLOW_WEB_SETUP:
+            raise HTTPException(status_code=503, detail="Web account store has no users")
         return {"setup_required": count == 0}
     finally:
         conn.close()
@@ -49,7 +52,9 @@ def check_setup():
 
 @router.post("/setup")
 def setup(req: SetupRequest):
-    """Create the first admin user. Only works when no users exist."""
+    """Create the first admin user on installations that allow setup."""
+    if not ALLOW_WEB_SETUP:
+        raise HTTPException(status_code=403, detail="Web registration is disabled")
     conn = get_web_db()
     try:
         count = conn.execute("SELECT COUNT(*) as c FROM web_user").fetchone()["c"]
@@ -96,7 +101,7 @@ def login(req: LoginRequest, request: Request, response: Response):
 
         # Check lockout
         if user["locked_until"]:
-            locked = datetime.fromisoformat(user["locked_until"])
+            locked = read_timestamp(user["locked_until"])
             if locked.tzinfo is None:
                 locked = locked.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) < locked:

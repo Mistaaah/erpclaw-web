@@ -1,0 +1,10 @@
+services:
+  gui:
+    build:
+      context: .
+      target: local-gui
+    environment:
+      ERPCLAW_API_HOST: ${ERPCLAW_API_HOST:-erpclaw-api-production.up.railway.app}
+    ports:
+      - '127.0.0.1:${ERPCLAW_GUI_PORT:-8810}:80'
+    restart: unless-stopped

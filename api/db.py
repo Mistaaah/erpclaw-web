@@ -16,9 +16,39 @@ ERP_DB_PATH = os.environ.get(
     os.path.expanduser("~/.openclaw/erpclaw/data.sqlite"),
 )
 
-# ERP business data lives in the Railway Postgres database. The web app's own
-# auth/session data remains in its local SQLite database.
+# Railway's business records and web accounts use their respective PostgreSQL URLs.
 ERP_DATABASE_URL = os.environ.get("ERPCLAW_DB_URL")
+WEB_DATABASE_URL = os.environ.get("ERPCLAW_WEB_DB_URL") or (
+    os.environ.get("DATABASE_URL") if os.environ.get("ERPCLAW_ENV") == "production" else None
+)
+ALLOW_WEB_SETUP = not WEB_DATABASE_URL or os.environ.get("ERPCLAW_ALLOW_WEB_SETUP") == "1"
+
+
+class PostgresWebConnection:
+    """Run the web store's parameterized queries on PostgreSQL."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, query, params=()):
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(query.replace("?", "%s").replace("datetime('now')", "CURRENT_TIMESTAMP"), params)
+        except Exception:
+            cursor.close()
+            raise
+        return cursor
+
+    def executescript(self, schema):
+        with self.execute(schema):
+            pass
+
+    def commit(self):
+        self.connection.commit()
+
+    def close(self):
+        self.connection.close()
+
 
 
 def get_erp_pg_db():
@@ -42,8 +72,17 @@ def get_erp_pg_db():
     return conn
 
 
-def get_web_db() -> sqlite3.Connection:
+def get_web_db() -> sqlite3.Connection | PostgresWebConnection:
     """Get connection to the web app's own database (auth, sessions)."""
+    if WEB_DATABASE_URL:
+        from psycopg2 import connect
+        from psycopg2.extras import RealDictCursor
+
+        return PostgresWebConnection(connect(
+            WEB_DATABASE_URL, connect_timeout=5, cursor_factory=RealDictCursor,
+        ))
+    if os.environ.get("ERPCLAW_ENV") == "production":
+        raise RuntimeError("PostgreSQL web account store is not configured")
     Path(WEB_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(WEB_DB_PATH)
     conn.row_factory = sqlite3.Row

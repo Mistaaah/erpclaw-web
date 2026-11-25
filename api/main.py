@@ -86,7 +86,7 @@ _FRONTEND_ROOT = _FRONTEND_DIR.resolve()
 @app.get("/{path:path}")
 async def frontend(path: str):
     """Serve built frontend assets and support SvelteKit client-side routes."""
-    if not _FRONTEND_DIR.is_dir():
+    if os.environ.get("ERPCLAW_API_ONLY") == "1" or not _FRONTEND_DIR.is_dir():
         raise HTTPException(status_code=404, detail="Frontend build not found")
 
     candidate = (_FRONTEND_DIR / path).resolve()
