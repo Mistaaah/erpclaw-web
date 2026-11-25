@@ -4,7 +4,7 @@ map $http_upgrade $erpclaw_connection {
 }
 
 server {
-    listen 80;
+    listen 127.0.0.1:${ERPCLAW_GUI_PORT};
     server_name localhost;
     root /usr/share/nginx/html;
 

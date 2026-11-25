@@ -11,7 +11,7 @@ COPY svelte.config.js vite.config.ts tsconfig.json ./
 RUN npm run build
 
 FROM nginx:stable-alpine AS local-gui
-ENV NGINX_ENVSUBST_FILTER="^ERPCLAW_API_HOST$"
+ENV NGINX_ENVSUBST_FILTER="^ERPCLAW_(API_HOST|GUI_PORT)$"
 COPY deploy/local-nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=frontend-build /app/build /usr/share/nginx/html
 
